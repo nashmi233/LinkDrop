@@ -29,13 +29,11 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android 37 platform
-        run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager 'platform-tools' 'platforms;android-37'
+      - name: Install Android 36 platform
+        run: sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
 
-      - name: Clone KDE Connect Android
-        run: git clone --depth 1 https://github.com/KDE/kdeconnect-android.git kdeconnect-android
+      - name: Clone KDE Connect Android v1.35.9
+        run: git clone --depth 1 --branch v1.35.9 https://github.com/KDE/kdeconnect-android.git kdeconnect-android
 
       - name: Apply LinkDrop V1 customizations
         run: python3 apply_linkdrop_customization.py kdeconnect-android
