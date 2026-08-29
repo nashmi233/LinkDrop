@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
  *
  * LinkDrop V1 modification: adds "Send to all devices".
+ * Compatible with KDE Connect Android v1.35.9.
  */
 package org.kde.kdeconnect.plugins.share
 
@@ -11,18 +12,17 @@ import android.os.Build
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
+import android.webkit.URLUtil
 import android.widget.Toast
 import androidx.appcompat.app.ActionBar
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.core.content.edit
 import androidx.preference.PreferenceManager
 import org.kde.kdeconnect.BackgroundService
 import org.kde.kdeconnect.Device
 import org.kde.kdeconnect.KdeConnect
 import org.kde.kdeconnect.base.BaseActivity
-import org.kde.kdeconnect.helpers.IntentHelper
 import org.kde.kdeconnect.ui.compose.KdeTheme
 import org.kde.kdeconnect.ui.compose.extensions.device.toUiModel
 import org.kde.kdeconnect.ui.compose.model.device.DeviceUiModel
@@ -60,6 +60,11 @@ class ShareActivity : BaseActivity<ActivityShareBinding>() {
         }, 1500)
     }
 
+    private fun doesIntentContainUrl(sourceIntent: Intent?): Boolean {
+        val text = sourceIntent?.extras?.getString(Intent.EXTRA_TEXT)
+        return URLUtil.isHttpUrl(text) || URLUtil.isHttpsUrl(text)
+    }
+
     private fun updateDeviceList() {
         val action = intent.action
         if (Intent.ACTION_SEND != action && Intent.ACTION_SEND_MULTIPLE != action) {
@@ -68,7 +73,7 @@ class ShareActivity : BaseActivity<ActivityShareBinding>() {
         }
 
         val devices = KdeConnect.getInstance().devices.values
-        intentHasUrl = IntentHelper.parseIntentUrls(intent).isNotEmpty()
+        intentHasUrl = doesIntentContainUrl(intent)
         uiDevices = devices
             .filter { device -> device.isPaired && (intentHasUrl || device.isReachable) }
             .map { it.toUiModel() }
@@ -81,6 +86,7 @@ class ShareActivity : BaseActivity<ActivityShareBinding>() {
 
     private fun shareToAllAndFinish(sourceIntent: Intent) {
         var accepted = 0
+
         uiDevices.forEach { uiDevice ->
             if (shareToDevice(uiDevice.id, Intent(sourceIntent), showErrors = false)) {
                 accepted++
@@ -110,9 +116,9 @@ class ShareActivity : BaseActivity<ActivityShareBinding>() {
         }
 
         if (!device.isReachable) {
-            val urls = IntentHelper.parseIntentUrls(sourceIntent)
-            return if (urls.isNotEmpty()) {
-                storeUrlForFutureDelivery(device, urls.toSet(), showToast = showErrors)
+            val url = sourceIntent.getStringExtra(Intent.EXTRA_TEXT)
+            return if (doesIntentContainUrl(sourceIntent) && url != null) {
+                storeUrlForFutureDelivery(device, url, showToast = showErrors)
                 true
             } else {
                 if (showErrors) {
@@ -126,20 +132,28 @@ class ShareActivity : BaseActivity<ActivityShareBinding>() {
             }
         }
 
-        val plugin = device.getPlugin(SharePlugin::class.java) ?: return false
+        val plugin = KdeConnect.getInstance().getDevicePlugin(
+            deviceId = device.deviceId,
+            pluginClass = SharePlugin::class.java
+        ) ?: return false
+
         plugin.share(sourceIntent)
         return true
     }
 
     private fun storeUrlForFutureDelivery(
         device: Device,
-        urls: Set<String>,
+        url: String,
         showToast: Boolean = true
     ) {
         val sharedPrefs = PreferenceManager.getDefaultSharedPreferences(this)
         val key = KEY_UNREACHABLE_URL_LIST + device.deviceId
-        val existingUrls = sharedPrefs.getStringSet(key, null) ?: emptySet()
-        sharedPrefs.edit { putStringSet(key, urls + existingUrls) }
+        val oldUrlSet = sharedPrefs.getStringSet(key, null)
+        val newUrlSet = mutableSetOf(url)
+        if (oldUrlSet != null) {
+            newUrlSet.addAll(oldUrlSet)
+        }
+        sharedPrefs.edit().putStringSet(key, newUrlSet).apply()
 
         if (showToast) {
             Toast.makeText(
