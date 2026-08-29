@@ -1,0 +1,61 @@
+name: Build LinkDrop APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'apply_linkdrop_customization.py'
+      - 'overrides/**'
+      - '.github/workflows/build-apk.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout LinkDrop customizations
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 37 platform
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platform-tools' 'platforms;android-37'
+
+      - name: Clone KDE Connect Android
+        run: git clone --depth 1 https://github.com/KDE/kdeconnect-android.git kdeconnect-android
+
+      - name: Apply LinkDrop V1 customizations
+        run: python3 apply_linkdrop_customization.py kdeconnect-android
+
+      - name: Build debug APK
+        working-directory: kdeconnect-android
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Rename APK
+        run: |
+          mkdir -p dist
+          APK=$(find kdeconnect-android/build/outputs/apk/debug -name '*.apk' | head -n 1)
+          test -n "$APK"
+          cp "$APK" dist/LinkDrop-V1-debug.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: LinkDrop-V1-APK
+          path: dist/LinkDrop-V1-debug.apk
+          if-no-files-found: error
+          retention-days: 30
